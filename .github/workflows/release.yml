@@ -1,0 +1,279 @@
+name: release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version. Example: v0.2.0. Empty means auto-calculate from commits."
+        required: false
+        type: string
+      force:
+        description: "Create a patch release even when no release-worthy commits are found."
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Plan version
+        id: plan
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_FORCE: ${{ inputs.force }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          normalize_version() {
+            local value="$1"
+            if [[ "$value" != v* ]]; then
+              value="v${value}"
+            fi
+            echo "$value"
+          }
+
+          validate_version() {
+            local value="$1"
+            if [[ ! "$value" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+              echo "Invalid release version: $value" >&2
+              exit 1
+            fi
+          }
+
+          latest_tag="$(git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || true)"
+          release_needed=true
+          create_tag=false
+          explicit_version=false
+          tag=""
+          bump=""
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            tag="${GITHUB_REF_NAME}"
+            validate_version "$tag"
+          elif [ -n "${INPUT_VERSION}" ]; then
+            tag="$(normalize_version "$INPUT_VERSION")"
+            validate_version "$tag"
+            create_tag=true
+            explicit_version=true
+          else
+            if git log -1 --pretty=%B | grep -qiE '\[(skip release|release skip)\]'; then
+              release_needed=false
+            fi
+
+            if [ -z "$latest_tag" ]; then
+              tag="v0.1.0"
+              bump="initial"
+            else
+              log_range="${latest_tag}..HEAD"
+              commit_file="$(mktemp)"
+              git log --format='%s%n%b' "$log_range" > "$commit_file"
+
+              if grep -Eq 'BREAKING CHANGE|^[A-Za-z]+(\([^)]+\))?!:' "$commit_file"; then
+                bump="major"
+              elif grep -Eq '^feat(\([^)]+\))?:' "$commit_file"; then
+                bump="minor"
+              elif grep -Eq '^(fix|perf|refactor|build|ci|chore|docs|test)(\([^)]+\))?:' "$commit_file"; then
+                bump="patch"
+              elif [ "${INPUT_FORCE}" = "true" ]; then
+                bump="patch"
+              else
+                release_needed=false
+              fi
+
+              rm -f "$commit_file"
+
+              if [ "$release_needed" = "true" ]; then
+                version="${latest_tag#v}"
+                IFS=. read -r major minor patch <<< "$version"
+                case "$bump" in
+                  major)
+                    major=$((major + 1))
+                    minor=0
+                    patch=0
+                    ;;
+                  minor)
+                    minor=$((minor + 1))
+                    patch=0
+                    ;;
+                  patch)
+                    patch=$((patch + 1))
+                    ;;
+                esac
+                tag="v${major}.${minor}.${patch}"
+              fi
+            fi
+            create_tag=true
+          fi
+
+          if [ "$release_needed" = "true" ] && git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            if [ "$explicit_version" = "true" ]; then
+              create_tag=false
+            elif [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+              echo "Tag ${tag} already exists. Skipping release."
+              release_needed=false
+            fi
+          fi
+
+          if [ "$release_needed" = "true" ]; then
+            if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+              previous_tag="$(git describe --tags --match 'v[0-9]*' --abbrev=0 "${tag}^" 2>/dev/null || true)"
+            else
+              previous_tag="$latest_tag"
+            fi
+
+            if [ -n "$previous_tag" ]; then
+              log_range="${previous_tag}..HEAD"
+            else
+              log_range="HEAD"
+            fi
+          else
+            previous_tag=""
+            log_range=""
+          fi
+
+          {
+            echo "release_needed=${release_needed}"
+            echo "create_tag=${create_tag}"
+            echo "tag=${tag}"
+            echo "version=${tag}"
+            echo "previous_tag=${previous_tag}"
+            echo "log_range=${log_range}"
+            echo "bump=${bump}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Stop when no release is needed
+        if: steps.plan.outputs.release_needed != 'true'
+        run: echo "No release-worthy commits found. CI still validates regular pushes."
+
+      - name: Release quality gate
+        if: steps.plan.outputs.release_needed == 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.tag }}
+          COMMIT: ${{ github.sha }}
+          BUILD_DATE: ${{ github.event.head_commit.timestamp }}
+        run: sh ./scripts/check-release.sh
+
+      - name: Generate changelog
+        if: steps.plan.outputs.release_needed == 'true'
+        env:
+          RELEASE_TAG: ${{ steps.plan.outputs.tag }}
+          LOG_RANGE: ${{ steps.plan.outputs.log_range }}
+        shell: bash
+        run: sh ./scripts/update-changelog.sh "$RELEASE_TAG" "$LOG_RANGE"
+
+      - name: Commit changelog
+        if: steps.plan.outputs.release_needed == 'true' && steps.plan.outputs.create_tag == 'true'
+        env:
+          RELEASE_TAG: ${{ steps.plan.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "CHANGELOG.md already contains ${RELEASE_TAG}."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "chore(release): update changelog for ${RELEASE_TAG} [skip release]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: Build release archives
+        if: steps.plan.outputs.release_needed == 'true'
+        env:
+          RELEASE_TAG: ${{ steps.plan.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          module_path="$(go list -m)"
+          commit="$(git rev-parse HEAD)"
+          build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          version="${RELEASE_TAG}"
+          ldflags="-s -w -X ${module_path}/internal/abpcrud.Version=${version} -X ${module_path}/internal/abpcrud.Commit=${commit} -X ${module_path}/internal/abpcrud.BuildDate=${build_date}"
+
+          platforms=(
+            "darwin/amd64"
+            "darwin/arm64"
+            "linux/amd64"
+            "linux/arm64"
+            "windows/amd64"
+            "windows/arm64"
+          )
+
+          for platform in "${platforms[@]}"; do
+            goos="${platform%/*}"
+            goarch="${platform#*/}"
+            name="abp-cli-${version#v}-${goos}-${goarch}"
+            target_dir="dist/${name}"
+            mkdir -p "$target_dir"
+
+            binary="${target_dir}/abp-cli"
+            if [ "$goos" = "windows" ]; then
+              binary="${binary}.exe"
+            fi
+
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags="$ldflags" -o "$binary" .
+
+            if [ "$goos" = "windows" ]; then
+              (cd "$target_dir" && zip -q "../${name}.zip" ./*)
+            else
+              tar -C "$target_dir" -czf "dist/${name}.tar.gz" .
+            fi
+          done
+
+          sha256sum dist/*.tar.gz dist/*.zip > dist/checksums.txt
+
+      - name: Create tag
+        if: steps.plan.outputs.release_needed == 'true' && steps.plan.outputs.create_tag == 'true'
+        env:
+          RELEASE_TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$RELEASE_TAG"
+          git push origin "$RELEASE_TAG"
+
+      - name: Publish GitHub release
+        if: steps.plan.outputs.release_needed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.plan.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          assets=(dist/*.tar.gz dist/*.zip dist/checksums.txt)
+          assets+=(CHANGELOG.md)
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --title "abp-cli ${RELEASE_TAG}" \
+              --notes-file dist/release-notes.md
+          fi

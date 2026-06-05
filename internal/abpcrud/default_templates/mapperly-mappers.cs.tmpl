@@ -1,0 +1,22 @@
+using {{.Module}}.Application.Contracts.{{.Entity}};
+using {{.Module}}.Domain.Entities;
+using {{.Module}}.Events;
+using Riok.Mapperly.Abstractions;
+using Volo.Abp.Mapperly;
+
+namespace {{.Module}}.Application.Mapperly
+{
+    [Mapper(RequiredMappingStrategy = RequiredMappingStrategy.Target)]
+    public partial class {{.Entity}}To{{.Entity}}DtoMapper : MapperBase<{{.Entity}}, {{.Entity}}Dto>
+    {
+        public override partial {{.Entity}}Dto Map({{.Entity}} source);
+        public override partial void Map({{.Entity}} source, {{.Entity}}Dto destination);
+    }
+
+    [Mapper(RequiredMappingStrategy = RequiredMappingStrategy.Target)]
+    public partial class {{.Entity}}To{{.Entity}}EtoMapper : MapperBase<{{.Entity}}, {{.Entity}}Eto>
+    {
+        public override partial {{.Entity}}Eto Map({{.Entity}} source);
+        public override partial void Map({{.Entity}} source, {{.Entity}}Eto destination);
+    }
+}

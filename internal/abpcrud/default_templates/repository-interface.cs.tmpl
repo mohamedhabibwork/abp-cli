@@ -1,0 +1,10 @@
+using System;
+using {{.Module}}.Domain.Entities;
+using Volo.Abp.Domain.Repositories;
+
+namespace {{.Module}}.Domain.Repositories
+{
+    public interface I{{.Entity}}Repository : IRepository<{{.Entity}}, {{.KeyType}}>
+    {
+    }
+}

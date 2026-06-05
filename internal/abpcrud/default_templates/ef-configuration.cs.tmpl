@@ -1,0 +1,17 @@
+using {{.Module}}.Constants;
+using {{.Module}}.Domain.Entities;
+{{.DbPropertiesUsing}}using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Volo.Abp.EntityFrameworkCore.Modeling;
+
+namespace {{.Module}}.EntityFrameworkCore.Configurations
+{
+    public class {{.Entity}}Configuration : IEntityTypeConfiguration<{{.Entity}}>
+    {
+        public void Configure(EntityTypeBuilder<{{.Entity}}> builder)
+        {
+            builder.ToTable({{.DbPropertiesName}}.DbTablePrefix + "{{.PluralEntity}}", {{.DbPropertiesName}}.DbSchema);
+            builder.ConfigureByConvention();
+{{.EFPropertyConfig}}        }
+    }
+}

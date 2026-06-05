@@ -1,0 +1,9 @@
+{
+  "entity": "Category",
+  "entityType": "FullAuditedAggregateRoot<Guid>",
+  "attributes": [
+    "string Name required maxlen:100",
+    "string Code maxlen:32",
+    "string Description maxlen:500"
+  ]
+}

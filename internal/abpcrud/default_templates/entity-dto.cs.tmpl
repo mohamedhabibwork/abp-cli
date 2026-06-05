@@ -1,0 +1,9 @@
+using System;
+{{.AttributeUsingBlock}}using Volo.Abp.Application.Dtos;
+
+namespace {{.Module}}.Application.Contracts.{{.Entity}}
+{
+    public class {{.Entity}}Dto : {{.DtoBaseClass}}<{{.KeyType}}>
+    {
+{{.ReadDtoProperties}}    }
+}

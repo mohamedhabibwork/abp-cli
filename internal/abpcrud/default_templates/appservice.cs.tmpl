@@ -1,0 +1,56 @@
+using System;
+using System.Threading.Tasks;
+using {{.Module}}.Application.Contracts.{{.Entity}};
+using {{.Module}}.Application.Contracts.Services;
+using {{.Module}}.Domain.Entities;
+using {{.Module}}.Permissions;
+using Microsoft.AspNetCore.Authorization;
+using Volo.Abp.Application.Dtos;
+using Volo.Abp.Application.Services;
+using Volo.Abp.Domain.Repositories;
+
+namespace {{.Module}}.Application.Services
+{
+    [Authorize({{.PermissionsClass}}.{{.Entity}}Management.Default)]
+    public class {{.Entity}}AppService :
+        CrudAppService<
+            {{.Entity}},
+            {{.Entity}}Dto,
+            {{.KeyType}},
+            PagedAndSortedResultRequestDto,
+            Create{{.Entity}}Dto,
+            Update{{.Entity}}Dto>,
+        I{{.Entity}}AppService
+    {
+        public {{.Entity}}AppService(IRepository<{{.Entity}}, {{.KeyType}}> repository)
+            : base(repository)
+        {
+            GetPolicyName = {{.PermissionsClass}}.{{.Entity}}Management.Default;
+            GetListPolicyName = {{.PermissionsClass}}.{{.Entity}}Management.Default;
+            CreatePolicyName = {{.PermissionsClass}}.{{.Entity}}Management.Create;
+            UpdatePolicyName = {{.PermissionsClass}}.{{.Entity}}Management.Update;
+            DeletePolicyName = {{.PermissionsClass}}.{{.Entity}}Management.Delete;
+        }
+
+        public override async Task<{{.Entity}}Dto> CreateAsync(Create{{.Entity}}Dto input)
+        {
+            await CheckCreatePolicyAsync();
+
+            var entity = new {{.Entity}}({{.AppServiceCreateArgs}});
+            entity = await Repository.InsertAsync(entity, autoSave: true);
+
+            return ObjectMapper.Map<{{.Entity}}, {{.Entity}}Dto>(entity);
+        }
+
+        public override async Task<{{.Entity}}Dto> UpdateAsync({{.KeyType}} id, Update{{.Entity}}Dto input)
+        {
+            await CheckUpdatePolicyAsync();
+
+            var entity = await Repository.GetAsync(id);
+            entity.Update({{.AppServiceUpdateArgs}});
+            entity = await Repository.UpdateAsync(entity, autoSave: true);
+
+            return ObjectMapper.Map<{{.Entity}}, {{.Entity}}Dto>(entity);
+        }
+    }
+}

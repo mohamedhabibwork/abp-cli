@@ -1,0 +1,13 @@
+using {{.Module}}.Domain.Entities;
+{{.DbPropertiesUsing}}using Microsoft.EntityFrameworkCore;
+using Volo.Abp.Data;
+using Volo.Abp.EntityFrameworkCore;
+
+namespace {{.Module}}.EntityFrameworkCore
+{
+    [ConnectionStringName({{.DbPropertiesName}}.ConnectionStringName)]
+    public interface I{{.DbContextPrefix}}DbContext : IEfCoreDbContext
+    {
+        DbSet<{{.Entity}}> {{.PluralEntity}} { get; }
+    }
+}

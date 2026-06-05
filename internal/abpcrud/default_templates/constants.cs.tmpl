@@ -1,0 +1,17 @@
+namespace {{.Module}}.Constants
+{
+    public static class {{.Entity}}Constants
+    {
+        public const string DefaultSorting = "CreationTime desc";
+
+        public static class CacheKeys
+        {
+            public const string ListCacheKey = "All{{.Entity}}List";
+            public const string SingleKey = "{{.Entity}}";
+        }
+
+        public static class ValidationConstants
+        {
+{{.ConstantsValidations}}        }
+    }
+}

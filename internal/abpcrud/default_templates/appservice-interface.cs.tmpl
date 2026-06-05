@@ -1,0 +1,17 @@
+using System;
+using {{.Module}}.Application.Contracts.{{.Entity}};
+using Volo.Abp.Application.Dtos;
+using Volo.Abp.Application.Services;
+
+namespace {{.Module}}.Application.Contracts.Services
+{
+    public interface I{{.Entity}}AppService :
+        ICrudAppService<
+            {{.Entity}}Dto,
+            {{.KeyType}},
+            PagedAndSortedResultRequestDto,
+            Create{{.Entity}}Dto,
+            Update{{.Entity}}Dto>
+    {
+    }
+}

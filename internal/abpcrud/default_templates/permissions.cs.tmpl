@@ -1,0 +1,22 @@
+using Volo.Abp.Reflection;
+
+namespace {{.Module}}.Permissions
+{
+    public static class {{.PermissionsClass}}
+    {
+        public const string GroupName = "{{.PermissionGroup}}";
+
+        public static class {{.Entity}}Management
+        {
+            public const string Default = GroupName + ".{{.Entity}}";
+            public const string Create = Default + ".Create";
+            public const string Update = Default + ".Update";
+            public const string Delete = Default + ".Delete";
+        }
+
+        public static string[] GetAll()
+        {
+            return ReflectionHelper.GetPublicConstantsRecursively(typeof({{.PermissionsClass}}));
+        }
+    }
+}

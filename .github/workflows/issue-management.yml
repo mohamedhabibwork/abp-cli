@@ -1,0 +1,61 @@
+name: issue-management
+
+on:
+  issues:
+    types:
+      - opened
+      - edited
+      - reopened
+
+permissions:
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Apply triage labels
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue = context.payload.issue;
+            const text = `${issue.title}\n${issue.body || ""}`.toLowerCase();
+
+            const labelDefinitions = {
+              "needs-triage": "ededed",
+              "bug": "d73a4a",
+              "enhancement": "a2eeef",
+              "question": "d876e3",
+              "cli-ui": "1d76db",
+              "templates": "0e8a16",
+              "release": "fbca04",
+              "abp": "5319e7"
+            };
+
+            for (const [name, color] of Object.entries(labelDefinitions)) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({ owner, repo, name, color });
+              }
+            }
+
+            const labels = new Set(["needs-triage"]);
+            if (/\bbug\b|error|crash|failed|failure|exception|wrong/.test(text)) labels.add("bug");
+            if (/feature|request|enhancement|support|add /.test(text)) labels.add("enhancement");
+            if (/question|how to|help|clarify/.test(text)) labels.add("question");
+            if (/ui|wizard|interactive|prompt/.test(text)) labels.add("cli-ui");
+            if (/template|override|custom/.test(text)) labels.add("templates");
+            if (/release|version|install|github action|workflow/.test(text)) labels.add("release");
+            if (/abp|framework|module|entity|crud/.test(text)) labels.add("abp");
+
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number: issue.number,
+              labels: [...labels]
+            });

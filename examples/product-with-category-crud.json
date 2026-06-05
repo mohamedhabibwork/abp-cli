@@ -1,0 +1,23 @@
+{
+  "entity": "Product",
+  "entityType": "FullAuditedAggregateRoot<Guid>",
+  "attributes": [
+    {
+      "type": "string",
+      "name": "Name",
+      "required": true,
+      "maxLength": 100
+    },
+    {
+      "type": "Guid",
+      "name": "CategoryId",
+      "required": true,
+      "foreignKey": true
+    },
+    {
+      "type": "decimal",
+      "name": "Price",
+      "required": true
+    }
+  ]
+}

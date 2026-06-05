@@ -1,0 +1,27 @@
+{
+  "entity": "Product",
+  "entityType": "FullAuditedAggregateRoot<Guid>",
+  "key": "Guid",
+  "mapping": "auto",
+  "attributes": [
+    {
+      "type": "string",
+      "name": "Name",
+      "required": true,
+      "maxLength": 100
+    },
+    {
+      "type": "decimal",
+      "name": "Price",
+      "required": true
+    },
+    {
+      "type": "int",
+      "name": "Stock"
+    },
+    {
+      "type": "bool",
+      "name": "IsActive"
+    }
+  ]
+}

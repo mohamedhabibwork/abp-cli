@@ -1,0 +1,80 @@
+name: pull-request
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate-title:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate conventional PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?(!)?: .+'
+          if [[ ! "$PR_TITLE" =~ $pattern ]]; then
+            echo "PR title must follow Conventional Commits."
+            echo "Examples:"
+            echo "  feat(cli): add template export"
+            echo "  fix(generator): handle nested module paths"
+            echo "  chore(release): update workflow"
+            exit 1
+          fi
+
+  quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check gofmt
+        shell: bash
+        run: |
+          set -euo pipefail
+          files="$(gofmt -l $(find . -name '*.go' -not -path './dist/*'))"
+          if [ -n "$files" ]; then
+            echo "Run gofmt on these files:"
+            echo "$files"
+            exit 1
+          fi
+
+      - name: Check go mod tidy
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: |
+          mkdir -p dist
+          go build -trimpath -ldflags="-s -w" -o dist/abp-cli .
+
+      - name: Check installer scripts
+        shell: bash
+        run: |
+          sh -n install.sh
+          pwsh -NoProfile -Command '$errors = $null; $null = [System.Management.Automation.PSParser]::Tokenize((Get-Content -Raw ./install.ps1), [ref]$errors); if ($errors) { $errors | Format-List; exit 1 }'

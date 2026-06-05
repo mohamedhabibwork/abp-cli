@@ -1,0 +1,16 @@
+using System;
+using {{.Module}}.Domain.Entities;
+using {{.Module}}.Domain.Repositories;
+using Volo.Abp.Domain.Repositories.EntityFrameworkCore;
+using Volo.Abp.EntityFrameworkCore;
+
+namespace {{.Module}}.EntityFrameworkCore.Repositories
+{
+    public class EfCore{{.Entity}}Repository : EfCoreRepository<{{.DbContextName}}, {{.Entity}}, {{.KeyType}}>, I{{.Entity}}Repository
+    {
+        public EfCore{{.Entity}}Repository(IDbContextProvider<{{.DbContextName}}> dbContextProvider)
+            : base(dbContextProvider)
+        {
+        }
+    }
+}

@@ -1,0 +1,28 @@
+using System.Threading.Tasks;
+using {{.Module}}.Domain.Entities;
+using Volo.Abp.Data;
+using Volo.Abp.DependencyInjection;
+using Volo.Abp.Domain.Repositories;
+
+namespace {{.Module}}.Domain.Data
+{
+    public class {{.Entity}}DataSeeder : IDataSeedContributor, ITransientDependency
+    {
+        private readonly IRepository<{{.Entity}}, {{.KeyType}}> _repository;
+
+        public {{.Entity}}DataSeeder(IRepository<{{.Entity}}, {{.KeyType}}> repository)
+        {
+            _repository = repository;
+        }
+
+        public async Task SeedAsync(DataSeedContext context)
+        {
+            if (await _repository.GetCountAsync() > 0)
+            {
+                return;
+            }
+
+            // Add seed data here when needed.
+        }
+    }
+}

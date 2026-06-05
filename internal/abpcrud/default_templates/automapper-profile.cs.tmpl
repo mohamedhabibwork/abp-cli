@@ -1,0 +1,16 @@
+using {{.Module}}.Application.Contracts.{{.Entity}};
+using {{.Module}}.Domain.Entities;
+using {{.Module}}.Events;
+using AutoMapper;
+
+namespace {{.Module}}.Application.AutoMapper
+{
+    public class {{.Entity}}Profile : Profile
+    {
+        public {{.Entity}}Profile()
+        {
+            CreateMap<{{.Entity}}, {{.Entity}}Dto>();
+            CreateMap<{{.Entity}}, {{.Entity}}Eto>();
+        }
+    }
+}

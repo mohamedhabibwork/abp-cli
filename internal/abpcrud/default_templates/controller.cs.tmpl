@@ -1,0 +1,58 @@
+using System;
+using {{.Module}}.Application.Contracts.{{.Entity}};
+using {{.Module}}.Application.Contracts.Services;
+using {{.Module}}.Permissions;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using System.Threading.Tasks;
+using Volo.Abp.Application.Dtos;
+using Volo.Abp.AspNetCore.Mvc;
+
+namespace {{.Module}}.HttpApi.Controllers
+{
+    [Route("{{.Route}}")]
+    public class {{.Entity}}Controller : AbpControllerBase
+    {
+        private readonly I{{.Entity}}AppService _appService;
+
+        public {{.Entity}}Controller(I{{.Entity}}AppService appService)
+        {
+            _appService = appService;
+        }
+
+        [HttpGet("{id}")]
+        [Authorize({{.PermissionsClass}}.{{.Entity}}Management.Default)]
+        public Task<{{.Entity}}Dto> GetAsync({{.KeyType}} id)
+        {
+            return _appService.GetAsync(id);
+        }
+
+        [HttpGet]
+        [Authorize({{.PermissionsClass}}.{{.Entity}}Management.Default)]
+        public Task<PagedResultDto<{{.Entity}}Dto>> GetListAsync([FromQuery] PagedAndSortedResultRequestDto input)
+        {
+            return _appService.GetListAsync(input);
+        }
+
+        [HttpPost]
+        [Authorize({{.PermissionsClass}}.{{.Entity}}Management.Create)]
+        public Task<{{.Entity}}Dto> CreateAsync(Create{{.Entity}}Dto input)
+        {
+            return _appService.CreateAsync(input);
+        }
+
+        [HttpPut("{id}")]
+        [Authorize({{.PermissionsClass}}.{{.Entity}}Management.Update)]
+        public Task<{{.Entity}}Dto> UpdateAsync({{.KeyType}} id, Update{{.Entity}}Dto input)
+        {
+            return _appService.UpdateAsync(id, input);
+        }
+
+        [HttpDelete("{id}")]
+        [Authorize({{.PermissionsClass}}.{{.Entity}}Management.Delete)]
+        public Task DeleteAsync({{.KeyType}} id)
+        {
+            return _appService.DeleteAsync(id);
+        }
+    }
+}

@@ -1,0 +1,11 @@
+using System;
+{{.AttributeUsingBlock}}using Volo.Abp.Domain.Entities.Events.Distributed;
+
+namespace {{.Module}}.Events
+{
+    [Serializable]
+    public class {{.Entity}}Eto : EtoBase
+    {
+{{.EtoProperties}}
+    }
+}

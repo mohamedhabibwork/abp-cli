@@ -1,0 +1,23 @@
+using {{.ResourceNamespace}};
+using Volo.Abp.Authorization.Permissions;
+using Volo.Abp.Localization;
+
+namespace {{.Module}}.Permissions
+{
+    public class {{.PermissionDefinitionProviderClass}} : PermissionDefinitionProvider
+    {
+        public override void Define(IPermissionDefinitionContext context)
+        {
+            var group = context.AddGroup({{.PermissionsClass}}.GroupName, L("Permission:{{.PermissionGroup}}"));
+            var {{.EntityPermissionVariable}} = group.AddPermission({{.PermissionsClass}}.{{.Entity}}Management.Default, L("Permission:{{.Entity}}"));
+            {{.EntityPermissionVariable}}.AddChild({{.PermissionsClass}}.{{.Entity}}Management.Create, L("Permission:{{.Entity}}.Create"));
+            {{.EntityPermissionVariable}}.AddChild({{.PermissionsClass}}.{{.Entity}}Management.Update, L("Permission:{{.Entity}}.Update"));
+            {{.EntityPermissionVariable}}.AddChild({{.PermissionsClass}}.{{.Entity}}Management.Delete, L("Permission:{{.Entity}}.Delete"));
+        }
+
+        private static LocalizableString L(string name)
+        {
+            return LocalizableString.Create<{{.ResourceType}}>(name);
+        }
+    }
+}
