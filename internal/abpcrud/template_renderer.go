@@ -43,24 +43,31 @@ type templateContext struct {
 	DbPropertiesNamespace string
 	DbPropertiesUsing     string
 
-	AttributeUsingBlock  string
-	ConstantsValidations string
-	EtoProperties        string
-	EntityProperties     string
-	InputProperties      string
-	ReadDtoProperties    string
-	ConstructorArgs      string
-	ConstructorSets      string
-	EntitySetters        string
-	UpdateArgs           string
+	AttributeUsingBlock    string
+	ConstantsValidations   string
+	EtoProperties          string
+	EntityProperties       string
+	InputProperties        string
+	ReadDtoProperties      string
+	GetListInputName       string
+	GetListInputProperties string
+	FilterPredicates       string
+	ConstructorArgs        string
+	ConstructorSets        string
+	EntitySetters          string
+	UpdateArgs             string
 
 	DtoName              string
 	DtoBaseClass         string
 	AppServiceCreateArgs string
 	AppServiceUpdateArgs string
 
-	EFPropertyConfig string
-	Culture          string
+	EFPropertyConfig     string
+	EFRelationshipConfig string
+	ManyToManyJoinEntity string
+	ManyToManyThisKey    string
+	ManyToManyOtherKey   string
+	Culture              string
 }
 
 type templateOptions struct {
@@ -141,24 +148,31 @@ func buildTemplateContext(info AppInfo, opts Options, templateOpts templateOptio
 		DbPropertiesNamespace: info.DbPropertiesNamespace,
 		DbPropertiesUsing:     dbPropertiesUsing,
 
-		AttributeUsingBlock:  attributeUsingBlock(opts.Attrs),
-		ConstantsValidations: constantsValidationBlock(opts),
-		EtoProperties:        etoPropertiesBlock(opts),
-		EntityProperties:     entityPropertiesBlock(opts),
-		InputProperties:      inputPropertiesBlock(opts),
-		ReadDtoProperties:    readDtoPropertiesBlock(opts),
-		ConstructorArgs:      constructorArgs(opts),
-		ConstructorSets:      constructorSetsBlock(opts),
-		EntitySetters:        entitySettersBlock(opts),
-		UpdateArgs:           updateArgs(opts),
+		AttributeUsingBlock:    attributeUsingBlock(opts.Attrs),
+		ConstantsValidations:   constantsValidationBlock(opts),
+		EtoProperties:          etoPropertiesBlock(opts),
+		EntityProperties:       entityPropertiesBlock(opts),
+		InputProperties:        inputPropertiesBlock(opts),
+		ReadDtoProperties:      readDtoPropertiesBlock(opts),
+		GetListInputName:       getListInputName(opts),
+		GetListInputProperties: getListInputPropertiesBlock(opts),
+		FilterPredicates:       filterPredicatesBlock(opts),
+		ConstructorArgs:        constructorArgs(opts),
+		ConstructorSets:        constructorSetsBlock(opts),
+		EntitySetters:          entitySettersBlock(opts),
+		UpdateArgs:             updateArgs(opts),
 
 		DtoName:              templateOpts.DtoName,
 		DtoBaseClass:         dtoBaseClass(opts.EntityType),
 		AppServiceCreateArgs: appServiceCreateArgs(opts),
 		AppServiceUpdateArgs: appServiceUpdateArgs(opts),
 
-		EFPropertyConfig: efPropertyConfigBlock(opts),
-		Culture:          templateOpts.Culture,
+		EFPropertyConfig:     efPropertyConfigBlock(opts),
+		EFRelationshipConfig: efRelationshipConfigBlock(opts),
+		ManyToManyJoinEntity: firstManyToManyRelation(opts).JoinEntity,
+		ManyToManyThisKey:    firstManyToManyRelation(opts).ThisKey,
+		ManyToManyOtherKey:   firstManyToManyRelation(opts).OtherKey,
+		Culture:              templateOpts.Culture,
 	}
 }
 

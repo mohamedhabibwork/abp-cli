@@ -1,0 +1,8 @@
+using Volo.Abp.Application.Dtos;
+
+namespace {{.Module}}.Application.Contracts.{{.Entity}}
+{
+    public class {{.GetListInputName}} : PagedAndSortedResultRequestDto
+    {
+{{.GetListInputProperties}}    }
+}

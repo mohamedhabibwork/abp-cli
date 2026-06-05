@@ -1,0 +1,30 @@
+using System;
+using {{.Module}}.Domain.Entities;
+using Volo.Abp.Domain.Entities;
+
+namespace {{.Module}}.Domain.Entities
+{
+    public class {{.ManyToManyJoinEntity}} : Entity
+    {
+        public {{.KeyType}} {{.ManyToManyThisKey}} { get; private set; }
+
+        public {{.Entity}}? {{.Entity}} { get; private set; }
+
+        public {{.KeyType}} {{.ManyToManyOtherKey}} { get; private set; }
+
+        protected {{.ManyToManyJoinEntity}}()
+        {
+        }
+
+        public {{.ManyToManyJoinEntity}}({{.KeyType}} {{lowerFirst .ManyToManyThisKey}}, {{.KeyType}} {{lowerFirst .ManyToManyOtherKey}})
+        {
+            {{.ManyToManyThisKey}} = {{lowerFirst .ManyToManyThisKey}};
+            {{.ManyToManyOtherKey}} = {{lowerFirst .ManyToManyOtherKey}};
+        }
+
+        public override object[] GetKeys()
+        {
+            return new object[] { {{.ManyToManyThisKey}}, {{.ManyToManyOtherKey}} };
+        }
+    }
+}

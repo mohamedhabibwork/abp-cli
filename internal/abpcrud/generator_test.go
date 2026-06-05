@@ -112,6 +112,66 @@ func TestRunVersionPrintsBuildMetadata(t *testing.T) {
 	}
 }
 
+func TestParseAttributeSupportsFilteringAndRelationModifiers(t *testing.T) {
+	t.Parallel()
+
+	attr, err := ParseAttribute("Guid CategoryId required filterable relation:Category")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if attr.Name != "CategoryId" || attr.Type != "Guid" || !attr.Required {
+		t.Fatalf("attribute parsed incorrectly: %+v", attr)
+	}
+	if attr.Filterable == nil || !*attr.Filterable {
+		t.Fatalf("Filterable = %#v, want true", attr.Filterable)
+	}
+	if attr.Relation.Kind != relationReference || attr.Relation.Entity != "Category" {
+		t.Fatalf("Relation = %+v, want reference Category", attr.Relation)
+	}
+}
+
+func TestLoadOptionsFromJSONSupportsRelationMetadata(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "relation-crud.json")
+	content := []byte(`{
+  "entity": "Product",
+  "attributes": [
+    {
+      "type": "Guid",
+      "name": "categoryId",
+      "required": true,
+      "filterable": true,
+      "relation": {
+        "kind": "reference",
+        "entity": "Category",
+        "inverse": "Products"
+      }
+    }
+  ]
+}`)
+	if err := os.WriteFile(configPath, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts, err := LoadOptionsFromJSON(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(opts.Attrs) != 1 {
+		t.Fatalf("Attrs length = %d, want 1", len(opts.Attrs))
+	}
+	attr := opts.Attrs[0]
+	if attr.Filterable == nil || !*attr.Filterable {
+		t.Fatalf("Filterable = %#v, want true", attr.Filterable)
+	}
+	if attr.Relation.Kind != relationReference || attr.Relation.Entity != "Category" || attr.Relation.Inverse != "Products" {
+		t.Fatalf("Relation = %+v, want reference Category with Products inverse", attr.Relation)
+	}
+}
+
 func TestDetectMappingStylePrefersMapperlyMarkers(t *testing.T) {
 	t.Parallel()
 
@@ -162,6 +222,7 @@ func TestNormalizeFileTypesSupportsGroupsAndAliases(t *testing.T) {
 		fileTypeCreateDto,
 		fileTypeUpdateDto,
 		fileTypeEntityDto,
+		fileTypeGetListInput,
 		fileTypeController,
 	}
 	if len(got) != len(want) {
@@ -203,6 +264,7 @@ func TestBuildPlanCanGenerateOnlySelectedFiles(t *testing.T) {
 		fileTypeCreateDto,
 		fileTypeUpdateDto,
 		fileTypeEntityDto,
+		fileTypeGetListInput,
 		fileTypeController,
 	}
 	gotTypes := make([]string, 0, len(plan.Changes))
@@ -457,6 +519,194 @@ func TestRunInteractiveBuildsOptionsFromWizardInput(t *testing.T) {
 	}
 	if len(opts.Attrs) != 1 || opts.Attrs[0].Name != "Name" || !opts.Attrs[0].Required || opts.Attrs[0].MaxLength != 100 {
 		t.Fatalf("Attrs parsed incorrectly: %#v", opts.Attrs)
+	}
+}
+
+func TestBuildPlanGeneratesFilteredListInputAndQuery(t *testing.T) {
+	t.Parallel()
+
+	root := createMinimalABPSolution(t)
+	plan, err := BuildPlan(Options{
+		Root:   root,
+		Entity: "Product",
+		Files:  []string{"contracts,application,httpapi"},
+		Attrs: []Attribute{
+			{Type: "string", Name: "Name", Required: true, MaxLength: 100},
+			{Type: "decimal", Name: "Price"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	input := findChange(plan, fileTypeGetListInput)
+	if input == nil {
+		t.Fatal("missing get-list-input change")
+	}
+	inputContent := string(input.Content)
+	for _, want := range []string{
+		"class GetProductListInput : PagedAndSortedResultRequestDto",
+		"public string? Filter { get; set; }",
+		"public string? Name { get; set; }",
+		"public decimal? Price { get; set; }",
+	} {
+		if !contains(inputContent, want) {
+			t.Fatalf("list input did not contain %q:\n%s", want, inputContent)
+		}
+	}
+
+	appService := findChange(plan, fileTypeAppService)
+	if appService == nil {
+		t.Fatal("missing appservice change")
+	}
+	appContent := string(appService.Content)
+	for _, want := range []string{
+		"GetListAsync(GetProductListInput input)",
+		".WhereIf(!input.Filter.IsNullOrWhiteSpace()",
+		".WhereIf(!input.Name.IsNullOrWhiteSpace(), x => x.Name.Contains(input.Name!))",
+		".WhereIf(input.Price.HasValue, x => x.Price == input.Price!.Value)",
+		".OrderBy(input.Sorting ?? ProductConstants.DefaultSorting)",
+	} {
+		if !contains(appContent, want) {
+			t.Fatalf("app service did not contain %q:\n%s", want, appContent)
+		}
+	}
+}
+
+func TestBuildPlanUsesDomainValidationChecks(t *testing.T) {
+	t.Parallel()
+
+	root := createMinimalABPSolution(t)
+	plan, err := BuildPlan(Options{
+		Root:   root,
+		Entity: "Product",
+		Files:  []string{"entity"},
+		Attrs: []Attribute{
+			{Type: "string", Name: "Name", Required: true, MaxLength: 100},
+			{Type: "decimal", Name: "Price", Required: true},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entity := findChange(plan, fileTypeEntity)
+	if entity == nil {
+		t.Fatal("missing entity change")
+	}
+	content := string(entity.Content)
+	if !contains(content, "Name = Check.NotNullOrWhiteSpace(name, nameof(name), maxLength: 100);") {
+		t.Fatalf("entity did not use string Check validation:\n%s", content)
+	}
+	if !contains(content, "Price = price;") {
+		t.Fatalf("entity should keep non-string assignment simple:\n%s", content)
+	}
+}
+
+func TestBuildPlanGeneratesReferenceRelationCode(t *testing.T) {
+	t.Parallel()
+
+	root := createMinimalABPSolution(t)
+	plan, err := BuildPlan(Options{
+		Root:   root,
+		Entity: "Product",
+		Files:  []string{"all"},
+		Attrs: []Attribute{
+			{Type: "Guid", Name: "CategoryId", Required: true, Relation: Relation{Kind: relationReference, Entity: "Category", Inverse: "Products"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entity := findChange(plan, fileTypeEntity)
+	if entity == nil {
+		t.Fatal("missing entity change")
+	}
+	entityContent := string(entity.Content)
+	if !contains(entityContent, "public Guid CategoryId { get; private set; }") ||
+		!contains(entityContent, "public Category? Category { get; private set; }") {
+		t.Fatalf("entity did not include reference FK/navigation:\n%s", entityContent)
+	}
+
+	config := findChange(plan, fileTypeEFConfiguration)
+	if config == nil {
+		t.Fatal("missing ef configuration change")
+	}
+	configContent := string(config.Content)
+	if !contains(configContent, "builder.HasOne(x => x.Category).WithMany(x => x.Products).HasForeignKey(x => x.CategoryId);") {
+		t.Fatalf("EF configuration did not include reference relation:\n%s", configContent)
+	}
+}
+
+func TestRelationMetadataRequiresExplicitInverseAndJoinDetails(t *testing.T) {
+	t.Parallel()
+
+	root := createMinimalABPSolution(t)
+	_, err := BuildPlan(Options{
+		Root:   root,
+		Entity: "Product",
+		Attrs: []Attribute{
+			{Type: "ICollection<Category>", Name: "Categories", Relation: Relation{Kind: relationCollection, Entity: "Category"}},
+		},
+	})
+	if err == nil || !contains(err.Error(), "requires inverse navigation metadata") {
+		t.Fatalf("collection relation error = %v, want inverse metadata error", err)
+	}
+
+	_, err = BuildPlan(Options{
+		Root:   root,
+		Entity: "Product",
+		Attrs: []Attribute{
+			{Type: "ICollection<Tag>", Name: "Tags", Relation: Relation{Kind: relationManyToMany, Entity: "Tag", Inverse: "Products"}},
+		},
+	})
+	if err == nil || !contains(err.Error(), "requires inverse, joinEntity, thisKey, and otherKey metadata") {
+		t.Fatalf("many-to-many relation error = %v, want explicit metadata error", err)
+	}
+}
+
+func TestBuildPlanGeneratesManyToManyJoinFiles(t *testing.T) {
+	t.Parallel()
+
+	root := createMinimalABPSolution(t)
+	plan, err := BuildPlan(Options{
+		Root:   root,
+		Entity: "Product",
+		Files:  []string{"all"},
+		Attrs: []Attribute{
+			{
+				Type: "ICollection<Tag>",
+				Name: "Tags",
+				Relation: Relation{
+					Kind:       relationManyToMany,
+					Entity:     "Tag",
+					Inverse:    "Products",
+					JoinEntity: "ProductTag",
+					ThisKey:    "ProductId",
+					OtherKey:   "TagId",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	joinEntity := findChange(plan, fileTypeManyToManyJoinEntity)
+	if joinEntity == nil {
+		t.Fatal("missing many-to-many join entity change")
+	}
+	if !contains(string(joinEntity.Content), "class ProductTag : Entity") {
+		t.Fatalf("join entity content unexpected:\n%s", string(joinEntity.Content))
+	}
+
+	joinConfig := findChange(plan, fileTypeManyToManyJoinConfiguration)
+	if joinConfig == nil {
+		t.Fatal("missing many-to-many join configuration change")
+	}
+	if !contains(string(joinConfig.Content), "builder.HasKey(x => new { x.ProductId, x.TagId });") {
+		t.Fatalf("join configuration content unexpected:\n%s", string(joinConfig.Content))
 	}
 }
 

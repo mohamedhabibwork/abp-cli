@@ -197,6 +197,9 @@ EntityProperties
 InputProperties
 ReadDtoProperties
 EtoProperties
+GetListInputName
+GetListInputProperties
+FilterPredicates
 ConstructorArgs
 ConstructorSets
 EntitySetters
@@ -204,6 +207,7 @@ UpdateArgs
 AppServiceCreateArgs
 AppServiceUpdateArgs
 EFPropertyConfig
+EFRelationshipConfig
 ```
 
 Template filenames:
@@ -222,8 +226,11 @@ entity-dto.cs.tmpl
 entity.cs.tmpl
 eto.cs.tmpl
 event-types.cs.tmpl
+get-list-input.cs.tmpl
 idbcontext.cs.tmpl
 localization.json.tmpl
+many-to-many-join-configuration.cs.tmpl
+many-to-many-join-entity.cs.tmpl
 mapperly-mappers.cs.tmpl
 permission-definition-provider.cs.tmpl
 permissions.cs.tmpl
@@ -270,12 +277,24 @@ Structured attribute example:
       "type": "string",
       "name": "Name",
       "required": true,
-      "maxLength": 100
+      "maxLength": 100,
+      "filterable": true
     },
     {
       "type": "decimal",
       "name": "Price",
-      "required": true
+      "required": true,
+      "filterable": true
+    },
+    {
+      "type": "Guid",
+      "name": "CategoryId",
+      "required": true,
+      "relation": {
+        "kind": "reference",
+        "entity": "Category",
+        "inverse": "Products"
+      }
     }
   ]
 }
@@ -338,13 +357,18 @@ required
 maxLength
 max_length
 maxlen
+filterable
 foreignKey
 foreign_key
 foreignkey
 fk
+relation
+relationship
 ```
 
 When `root` is omitted, it defaults to the current directory and then walks upward to find the ABP solution root. When `root` is present and relative, it is resolved relative to the JSON file and then uses the same upward detection.
+
+Relation metadata supports `reference`, `collection`, and `manyToMany`. Collection relations require an explicit inverse navigation name. Many-to-many relations also require `joinEntity`, `thisKey`, and `otherKey`; the generator does not guess join-table names.
 
 Example files are included in [examples](examples):
 
@@ -359,7 +383,7 @@ examples/product-with-category-crud.json
 Each `--attr` value uses this format:
 
 ```text
-<csharp-type> <PropertyName> [required] [maxlen:N] [foreignkey]
+<csharp-type> <PropertyName> [required] [maxlen:N] [filterable] [foreignkey] [relation:Entity[:kind]]
 ```
 
 Examples:
@@ -368,7 +392,7 @@ Examples:
 --attr "string Name required maxlen:100"
 --attr "decimal Price required"
 --attr "DateTime ReleaseDate"
---attr "Guid Category foreignkey"
+--attr "Guid CategoryId required relation:Category"
 ```
 
 ## Options
@@ -413,6 +437,7 @@ Distributed event DTOs
 Permissions and permission definition provider
 Entity
 DTOs
+Custom Get<Entity>ListInput filter DTO
 Application service interface
 Application service
 Repository interfaces and EF repository
@@ -420,6 +445,7 @@ AutoMapper profile or Mapperly mapper classes
 HTTP API controller
 Data seeder
 EF Core entity configuration
+Explicit many-to-many join entity and configuration
 DbContext and IDbContext DbSet updates
 Localization JSON keys
 ```
@@ -448,6 +474,7 @@ data-seeder
 create-dto
 update-dto
 entity-dto
+get-list-input
 appservice-interface
 permissions
 permission-definition-provider
@@ -455,6 +482,8 @@ appservice
 mapping
 controller
 ef-configuration
+many-to-many-join-entity
+many-to-many-join-configuration
 ef-repository
 dbcontext
 idbcontext
@@ -462,7 +491,7 @@ localization-en
 localization-ar
 ```
 
-Useful aliases include `dto` for all DTO files, `repository` for domain and EF repositories, `permissions` for both permission files, and `dbcontexts` for both DbContext surfaces.
+Useful aliases include `dto` for all DTO files including the list input, `repository` for domain and EF repositories, `permissions` for both permission files, and `dbcontexts` for both DbContext surfaces.
 
 ## ABP Version Compatibility
 

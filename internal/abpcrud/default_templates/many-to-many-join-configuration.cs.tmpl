@@ -1,0 +1,16 @@
+using {{.Module}}.Domain.Entities;
+{{.DbPropertiesUsing}}using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+namespace {{.Module}}.EntityFrameworkCore.Configurations
+{
+    public class {{.ManyToManyJoinEntity}}Configuration : IEntityTypeConfiguration<{{.ManyToManyJoinEntity}}>
+    {
+        public void Configure(EntityTypeBuilder<{{.ManyToManyJoinEntity}}> builder)
+        {
+            builder.ToTable({{.DbPropertiesName}}.DbTablePrefix + "{{.ManyToManyJoinEntity}}", {{.DbPropertiesName}}.DbSchema);
+            builder.HasKey(x => new { x.{{.ManyToManyThisKey}}, x.{{.ManyToManyOtherKey}} });
+            builder.HasOne(x => x.{{.Entity}}).WithMany().HasForeignKey(x => x.{{.ManyToManyThisKey}});
+        }
+    }
+}

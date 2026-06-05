@@ -1,13 +1,19 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Linq.Dynamic.Core;
 using System.Threading.Tasks;
 using {{.Module}}.Application.Contracts.{{.Entity}};
 using {{.Module}}.Application.Contracts.Services;
+using {{.Module}}.Constants;
 using {{.Module}}.Domain.Entities;
 using {{.Module}}.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp;
+using Volo.Abp.Linq;
 
 namespace {{.Module}}.Application.Services
 {
@@ -17,7 +23,7 @@ namespace {{.Module}}.Application.Services
             {{.Entity}},
             {{.Entity}}Dto,
             {{.KeyType}},
-            PagedAndSortedResultRequestDto,
+            {{.GetListInputName}},
             Create{{.Entity}}Dto,
             Update{{.Entity}}Dto>,
         I{{.Entity}}AppService
@@ -30,6 +36,23 @@ namespace {{.Module}}.Application.Services
             CreatePolicyName = {{.PermissionsClass}}.{{.Entity}}Management.Create;
             UpdatePolicyName = {{.PermissionsClass}}.{{.Entity}}Management.Update;
             DeletePolicyName = {{.PermissionsClass}}.{{.Entity}}Management.Delete;
+        }
+
+        public override async Task<PagedResultDto<{{.Entity}}Dto>> GetListAsync({{.GetListInputName}} input)
+        {
+            await CheckGetListPolicyAsync();
+
+            var queryable = await Repository.GetQueryableAsync();
+            var query = queryable
+{{.FilterPredicates}}                .OrderBy(input.Sorting ?? {{.Entity}}Constants.DefaultSorting);
+
+            var totalCount = await AsyncExecuter.CountAsync(query);
+            var entities = await AsyncExecuter.ToListAsync(
+                query.PageBy(input.SkipCount, input.MaxResultCount));
+
+            return new PagedResultDto<{{.Entity}}Dto>(
+                totalCount,
+                ObjectMapper.Map<List<{{.Entity}}>, List<{{.Entity}}Dto>>(entities));
         }
 
         public override async Task<{{.Entity}}Dto> CreateAsync(Create{{.Entity}}Dto input)

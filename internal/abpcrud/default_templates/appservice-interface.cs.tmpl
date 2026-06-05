@@ -1,6 +1,5 @@
 using System;
 using {{.Module}}.Application.Contracts.{{.Entity}};
-using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 
 namespace {{.Module}}.Application.Contracts.Services
@@ -9,7 +8,7 @@ namespace {{.Module}}.Application.Contracts.Services
         ICrudAppService<
             {{.Entity}}Dto,
             {{.KeyType}},
-            PagedAndSortedResultRequestDto,
+            {{.GetListInputName}},
             Create{{.Entity}}Dto,
             Update{{.Entity}}Dto>
     {

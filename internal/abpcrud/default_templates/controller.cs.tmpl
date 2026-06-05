@@ -29,7 +29,7 @@ namespace {{.Module}}.HttpApi.Controllers
 
         [HttpGet]
         [Authorize({{.PermissionsClass}}.{{.Entity}}Management.Default)]
-        public Task<PagedResultDto<{{.Entity}}Dto>> GetListAsync([FromQuery] PagedAndSortedResultRequestDto input)
+        public Task<PagedResultDto<{{.Entity}}Dto>> GetListAsync([FromQuery] {{.GetListInputName}} input)
         {
             return _appService.GetListAsync(input);
         }

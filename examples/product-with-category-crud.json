@@ -12,7 +12,12 @@
       "type": "Guid",
       "name": "CategoryId",
       "required": true,
-      "foreignKey": true
+      "filterable": true,
+      "relation": {
+        "kind": "reference",
+        "entity": "Category",
+        "inverse": "Products"
+      }
     },
     {
       "type": "decimal",

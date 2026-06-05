@@ -174,7 +174,8 @@ func promptAttributes(reader *bufio.Reader, stdout io.Writer, attrs []Attribute)
 	}
 
 	fmt.Fprintln(stdout)
-	fmt.Fprintln(stdout, `Attribute format: string Name required maxlen:100`)
+	fmt.Fprintln(stdout, `Attribute format: string Name required maxlen:100 filterable`)
+	fmt.Fprintln(stdout, `Relation examples: Guid CategoryId required relation:Category, Guid TagIds relation:Tag:many-to-many`)
 	fmt.Fprintln(stdout, "Leave the attribute prompt empty when finished.")
 
 	for {
@@ -266,6 +267,12 @@ func formatAttribute(attr Attribute) string {
 	}
 	if attr.ForeignKey {
 		parts = append(parts, "foreignkey")
+	}
+	if attr.Filterable != nil && *attr.Filterable {
+		parts = append(parts, "filterable")
+	}
+	if attr.Relation.Kind != "" && attr.Relation.Entity != "" {
+		parts = append(parts, "relation:"+attr.Relation.Entity+":"+attr.Relation.Kind)
 	}
 	return strings.Join(parts, " ")
 }

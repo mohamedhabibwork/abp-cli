@@ -39,6 +39,21 @@ type Attribute struct {
 	Required   bool
 	MaxLength  int
 	ForeignKey bool
+	Filterable *bool
+	Relation   Relation
+}
+
+// Relation describes generated entity relationships without guessing unsafe
+// inverse or join-table metadata.
+type Relation struct {
+	Kind       string
+	Entity     string
+	ForeignKey string
+	Navigation string
+	Inverse    string
+	JoinEntity string
+	ThisKey    string
+	OtherKey   string
 }
 
 type AppInfo struct {
@@ -112,6 +127,12 @@ const (
 	mappingMapperly   = "mapperly"
 )
 
+const (
+	relationReference  = "reference"
+	relationCollection = "collection"
+	relationManyToMany = "manyToMany"
+)
+
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
 		switch strings.ToLower(args[0]) {
@@ -161,28 +182,49 @@ func runGenerate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.StringVar(&cliOpts.Root, "root", ".", "ABP solution root. Defaults to the current directory.")
 	fs.StringVar(&cliOpts.Module, "module", "", "ABP module/application namespace. Auto-detected from src/* layer projects when omitted.")
 	fs.StringVar(&cliOpts.Entity, "entity", "", "Entity name in PascalCase, for example Product.")
-	fs.StringVar(&cliOpts.EntityType, "entity-type", defaultEntityType, "ABP entity base type, for example FullAuditedAggregateRoot<Guid>, AggregateRoot<long>, Entity<Guid>, or ValueObject.")
+	fs.StringVar(
+		&cliOpts.EntityType,
+		"entity-type",
+		defaultEntityType,
+		"ABP entity base type, for example FullAuditedAggregateRoot<Guid>, AggregateRoot<long>, Entity<Guid>, or ValueObject.",
+	)
 	fs.StringVar(&cliOpts.KeyType, "key", "", "Entity key type. Defaults to the generic type in --entity-type.")
 	fs.StringVar(&cliOpts.Mapping, "mapping", mappingAuto, "Object mapping style: auto, automapper, or mapperly.")
-	fs.StringVar(&cliOpts.TemplateDir, "template-dir", "", "Directory containing custom templates. Files with matching names override built-in templates.")
-	fs.Var(&rawFiles, "file", "Generated file type or group to include. Repeat or comma-separate. Use all, domain, contracts, application, httpapi, efcore, localization, entity, dto, controller, dbcontext, etc.")
+	fs.StringVar(
+		&cliOpts.TemplateDir,
+		"template-dir",
+		"",
+		"Directory containing custom templates. Files with matching names override built-in templates.",
+	)
+	fs.Var(
+		&rawFiles,
+		"file",
+		"Generated file type or group to include. Repeat or comma-separate. Use all, domain, contracts, application, httpapi, efcore, localization, entity, dto, controller, dbcontext, etc.",
+	)
 	fs.Var(&rawFiles, "files", "Comma-separated generated file types or groups to include. Same values as --file.")
 	fs.BoolVar(&cliOpts.Interactive, "ui", false, "Open the interactive CLI UI wizard before previewing file changes.")
 	fs.BoolVar(&cliOpts.Interactive, "interactive", false, "Open the interactive CLI UI wizard before previewing file changes.")
 	fs.BoolVar(&cliOpts.Overwrite, "overwrite", false, "Overwrite generated files that already exist.")
 	fs.BoolVar(&cliOpts.AssumeYes, "yes", false, "Generate without asking for approval.")
 	fs.BoolVar(&cliOpts.DryRun, "dry-run", false, "Show the detected app and planned file paths without writing.")
-	fs.Var(&rawAttrs, "attr", `Entity attribute, repeatable. Example: --attr "string Name required maxlen:100"`)
+	fs.Var(
+		&rawAttrs,
+		"attr",
+		`Entity attribute, repeatable. Example: --attr "string Name required maxlen:100 filterable" or --attr "Guid CategoryId required relation:Category"`,
+	)
 
 	fs.Usage = func() {
 		fmt.Fprintln(stderr, "Generate ABP Framework CRUD files after previewing absolute file paths.")
 		fmt.Fprintln(stderr)
 		fmt.Fprintln(stderr, "Usage:")
 		fmt.Fprintln(stderr, `  abp-cli generate --config examples/product-crud.json --dry-run`)
-		fmt.Fprintln(stderr, `  abp-cli generate --root /path/to/app --entity Product --attr "string Name required maxlen:100" --attr "decimal Price required"`)
+		fmt.Fprintln(stderr, `  abp-cli generate --root /path/to/app --entity Product \`)
+		fmt.Fprintln(stderr, `    --attr "string Name required maxlen:100" --attr "decimal Price required"`)
+		fmt.Fprintln(stderr, `  abp-cli generate --root /path/to/app --entity Product --attr "Guid CategoryId required relation:Category"`)
 		fmt.Fprintln(stderr, `  abp-cli generate --root /path/to/app --entity Product --file entity --file dto --file controller`)
 		fmt.Fprintln(stderr, `  abp-cli ui --root /path/to/app`)
-		fmt.Fprintln(stderr, `  go run ./scripts/abp_crud_generator.go generate --root /path/to/app --entity Product --attr "string Name required maxlen:100"`)
+		fmt.Fprintln(stderr, `  go run ./scripts/abp_crud_generator.go generate \`)
+		fmt.Fprintln(stderr, `    --root /path/to/app --entity Product --attr "string Name required maxlen:100"`)
 		fmt.Fprintln(stderr)
 		fmt.Fprintln(stderr, "Options:")
 		fs.PrintDefaults()
@@ -652,7 +694,15 @@ func parseJSONAttribute(value json.RawMessage) (Attribute, error) {
 	if value, ok := getJSONBool(raw, "foreignKey", "foreign_key", "foreignkey", "fk"); ok {
 		attr.ForeignKey = value
 	}
+	if value, ok := getJSONBool(raw, "filterable", "filter"); ok {
+		attr.Filterable = &value
+	}
 	attr.MaxLength = getJSONInt(raw, "maxLength", "max_length", "maxlen", "maxLen")
+	relation, err := parseJSONRelation(raw, attr)
+	if err != nil {
+		return Attribute{}, err
+	}
+	attr.Relation = relation
 
 	if attr.Type == "" || attr.Name == "" {
 		return Attribute{}, errors.New("type and name are required")
@@ -665,6 +715,49 @@ func parseJSONAttribute(value json.RawMessage) (Attribute, error) {
 	}
 
 	return attr, nil
+}
+
+// parseJSONRelation accepts both shorthand relation strings and full relation
+// objects so older configs can grow relation metadata gradually.
+func parseJSONRelation(raw map[string]json.RawMessage, attr Attribute) (Relation, error) {
+	for _, name := range []string{"relation", "relationship"} {
+		value, ok := raw[name]
+		if !ok {
+			continue
+		}
+
+		trimmed := strings.TrimSpace(string(value))
+		if strings.HasPrefix(trimmed, `"`) {
+			var entity string
+			if err := json.Unmarshal(value, &entity); err == nil {
+				return Relation{
+					Kind:    relationReference,
+					Entity:  toPascal(entity),
+					ThisKey: attr.Name,
+				}, nil
+			}
+		}
+
+		var relRaw map[string]json.RawMessage
+		if err := json.Unmarshal(value, &relRaw); err != nil {
+			return Relation{}, fmt.Errorf("%s must be a string or object: %w", name, err)
+		}
+		kind := firstNonEmpty(
+			getJSONText(relRaw, "kind"),
+			getJSONText(relRaw, "type"),
+		)
+		return Relation{
+			Kind:       normalizeRelationKind(kind),
+			Entity:     toPascal(getJSONText(relRaw, "entity", "target", "targetEntity")),
+			ForeignKey: toPascal(getJSONText(relRaw, "foreignKey", "foreign_key", "fk")),
+			Navigation: toPascal(getJSONText(relRaw, "navigation", "nav")),
+			Inverse:    toPascal(getJSONText(relRaw, "inverse", "inverseNavigation", "inverse_navigation")),
+			JoinEntity: toPascal(getJSONText(relRaw, "joinEntity", "join_entity", "join")),
+			ThisKey:    toPascal(firstNonEmpty(getJSONText(relRaw, "thisKey", "this_key"), attr.Name)),
+			OtherKey:   toPascal(getJSONText(relRaw, "otherKey", "other_key")),
+		}, nil
+	}
+	return Relation{}, nil
 }
 
 func getJSONInt(raw map[string]json.RawMessage, names ...string) int {
@@ -713,8 +806,15 @@ func ParseAttribute(spec string) (Attribute, error) {
 		switch {
 		case normalized == "required":
 			attr.Required = true
+		case normalized == "filterable" || normalized == "filter":
+			value := true
+			attr.Filterable = &value
+		case normalized == "nofilter" || normalized == "not-filterable":
+			value := false
+			attr.Filterable = &value
 		case normalized == "foreignkey" || normalized == "foreign" || normalized == "fk":
 			attr.ForeignKey = true
+			attr.Relation.Kind = relationReference
 		case strings.HasPrefix(normalized, "maxlen:") || strings.HasPrefix(normalized, "maxlength:") || strings.HasPrefix(normalized, "max:"):
 			_, value, _ := strings.Cut(normalized, ":")
 			maxLength, err := strconv.Atoi(value)
@@ -722,12 +822,54 @@ func ParseAttribute(spec string) (Attribute, error) {
 				return Attribute{}, fmt.Errorf("invalid max length modifier %q", mod)
 			}
 			attr.MaxLength = maxLength
+		case strings.HasPrefix(normalized, "relation:"):
+			if err := applyRelationModifier(&attr, mod); err != nil {
+				return Attribute{}, err
+			}
 		default:
 			return Attribute{}, fmt.Errorf("unknown modifier %q", mod)
 		}
 	}
 
 	return attr, nil
+}
+
+// applyRelationModifier parses the compact CLI relation syntax:
+// relation:Entity[:reference|collection|many-to-many].
+func applyRelationModifier(attr *Attribute, mod string) error {
+	parts := strings.Split(mod, ":")
+	if len(parts) < 2 || strings.TrimSpace(parts[1]) == "" {
+		return fmt.Errorf("invalid relation modifier %q", mod)
+	}
+
+	kind := relationReference
+	if len(parts) >= 3 {
+		kind = normalizeRelationKind(parts[2])
+	}
+	if kind == "" {
+		return fmt.Errorf("invalid relation kind in modifier %q", mod)
+	}
+
+	attr.ForeignKey = kind == relationReference
+	attr.Relation.Kind = kind
+	attr.Relation.Entity = toPascal(parts[1])
+	attr.Relation.ThisKey = attr.Name
+	return nil
+}
+
+// normalizeRelationKind canonicalizes user-facing relation aliases to the
+// internal relation constants used by templates.
+func normalizeRelationKind(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", relationReference, "ref", "many-to-one", "manytoone":
+		return relationReference
+	case relationCollection, "one-to-many", "onetomany", "has-many", "hasmany":
+		return relationCollection
+	case strings.ToLower(relationManyToMany), "many-to-many", "manytomany", "m2m":
+		return relationManyToMany
+	default:
+		return ""
+	}
 }
 
 func BuildPlan(opts Options) (*Plan, error) {
@@ -763,6 +905,9 @@ func BuildPlan(opts Options) (*Plan, error) {
 		return nil, err
 	}
 	opts.Files = files
+	if err := normalizeAttributeMetadata(&opts); err != nil {
+		return nil, err
+	}
 
 	info, err := DetectApp(opts.Root, opts.Module)
 	if err != nil {
@@ -791,6 +936,70 @@ func BuildPlan(opts Options) (*Plan, error) {
 	})
 
 	return plan, nil
+}
+
+// normalizeAttributeMetadata fills safe defaults and rejects relation shapes
+// that would otherwise require the generator to invent inverse or join names.
+func normalizeAttributeMetadata(opts *Options) error {
+	for i := range opts.Attrs {
+		attr := &opts.Attrs[i]
+		if attr.ForeignKey && attr.Relation.Kind == "" {
+			attr.Relation.Kind = relationReference
+		}
+		if attr.Relation.Kind == relationReference && attr.Relation.Entity == "" {
+			attr.Relation.Entity = relationEntityFromForeignKey(attr.Name)
+		}
+		if attr.Relation.Kind == "" {
+			continue
+		}
+
+		attr.Relation.Kind = normalizeRelationKind(attr.Relation.Kind)
+		if attr.Relation.Kind == "" {
+			return fmt.Errorf("attribute %s has unsupported relation kind", attr.Name)
+		}
+		if attr.Relation.Entity == "" {
+			return fmt.Errorf("attribute %s relation requires an entity", attr.Name)
+		}
+		if attr.Relation.Navigation == "" {
+			attr.Relation.Navigation = attr.Relation.Entity
+		}
+		if attr.Relation.ThisKey == "" {
+			attr.Relation.ThisKey = attr.Name
+		}
+
+		switch attr.Relation.Kind {
+		case relationReference:
+			attr.ForeignKey = true
+			if attr.Relation.ForeignKey == "" {
+				attr.Relation.ForeignKey = attr.Name
+			}
+		case relationCollection:
+			if attr.Relation.Inverse == "" {
+				return fmt.Errorf("collection relation %s requires inverse navigation metadata", attr.Name)
+			}
+		case relationManyToMany:
+			missingJoinMetadata := attr.Relation.Inverse == "" ||
+				attr.Relation.JoinEntity == "" ||
+				attr.Relation.ThisKey == "" ||
+				attr.Relation.OtherKey == ""
+			if missingJoinMetadata {
+				return fmt.Errorf(
+					"many-to-many relation %s requires inverse, joinEntity, thisKey, and otherKey metadata",
+					attr.Name,
+				)
+			}
+		}
+	}
+	return nil
+}
+
+// relationEntityFromForeignKey keeps the legacy foreignkey modifier useful for
+// common CategoryId-style properties while still failing on ambiguous names.
+func relationEntityFromForeignKey(name string) string {
+	if strings.HasSuffix(name, "Id") && len(name) > len("Id") {
+		return strings.TrimSuffix(name, "Id")
+	}
+	return ""
 }
 
 func DetectApp(root string, requestedModule string) (AppInfo, error) {
@@ -983,6 +1192,12 @@ func PrintPlan(w io.Writer, plan *Plan) {
 			if attr.ForeignKey {
 				fmt.Fprint(w, " foreignkey")
 			}
+			if attr.Filterable != nil && *attr.Filterable {
+				fmt.Fprint(w, " filterable")
+			}
+			if attr.Relation.Kind != "" && attr.Relation.Entity != "" {
+				fmt.Fprintf(w, " relation:%s:%s", attr.Relation.Entity, attr.Relation.Kind)
+			}
 			fmt.Fprintln(w)
 		}
 	}
@@ -1051,10 +1266,20 @@ func addCRUDChanges(plan *Plan) error {
 	httpAPI := info.LayerDirs[layerHttpAPI]
 	efCore := info.LayerDirs[layerEntityFrameworkCore]
 
-	if err := addGeneratedTemplateFile(plan, fileTypeConstants, filepath.Join(domainShared, "Constants", entity+"Constants.cs"), constantsTemplate); err != nil {
+	if err := addGeneratedTemplateFile(
+		plan,
+		fileTypeConstants,
+		filepath.Join(domainShared, "Constants", entity+"Constants.cs"),
+		constantsTemplate,
+	); err != nil {
 		return err
 	}
-	if err := addGeneratedTemplateFile(plan, fileTypeEventTypes, filepath.Join(domainShared, "Events", entity+"EtoTypes.cs"), eventTypesTemplate); err != nil {
+	if err := addGeneratedTemplateFile(
+		plan,
+		fileTypeEventTypes,
+		filepath.Join(domainShared, "Events", entity+"EtoTypes.cs"),
+		eventTypesTemplate,
+	); err != nil {
 		return err
 	}
 	if err := addGeneratedTemplateFile(plan, fileTypeEto, filepath.Join(domainShared, "Events", entity+"Eto.cs"), etoTemplate); err != nil {
@@ -1064,23 +1289,61 @@ func addCRUDChanges(plan *Plan) error {
 	if err := addGeneratedTemplateFile(plan, fileTypeEntity, filepath.Join(domain, "Entities", entity+".cs"), entityTemplate); err != nil {
 		return err
 	}
-	if err := addGeneratedTemplateFile(plan, fileTypeRepositoryInterface, filepath.Join(domain, "Repositories", "I"+entity+"Repository.cs"), repositoryInterfaceTemplate); err != nil {
+	if err := addGeneratedTemplateFile(
+		plan,
+		fileTypeRepositoryInterface,
+		filepath.Join(domain, "Repositories", "I"+entity+"Repository.cs"),
+		repositoryInterfaceTemplate,
+	); err != nil {
 		return err
 	}
-	if err := addGeneratedTemplateFile(plan, fileTypeDataSeeder, filepath.Join(domain, "Data", entity+"DataSeeder.cs"), dataSeederTemplate); err != nil {
+	if err := addGeneratedTemplateFile(
+		plan,
+		fileTypeDataSeeder,
+		filepath.Join(domain, "Data", entity+"DataSeeder.cs"),
+		dataSeederTemplate,
+	); err != nil {
 		return err
 	}
 
-	if err := addGeneratedTemplateFile(plan, fileTypeCreateDto, filepath.Join(contracts, entity, "Create"+entity+"Dto.cs"), createDtoTemplate); err != nil {
+	if err := addGeneratedTemplateFile(
+		plan,
+		fileTypeCreateDto,
+		filepath.Join(contracts, entity, "Create"+entity+"Dto.cs"),
+		createDtoTemplate,
+	); err != nil {
 		return err
 	}
-	if err := addGeneratedTemplateFile(plan, fileTypeUpdateDto, filepath.Join(contracts, entity, "Update"+entity+"Dto.cs"), updateDtoTemplate); err != nil {
+	if err := addGeneratedTemplateFile(
+		plan,
+		fileTypeUpdateDto,
+		filepath.Join(contracts, entity, "Update"+entity+"Dto.cs"),
+		updateDtoTemplate,
+	); err != nil {
 		return err
 	}
-	if err := addGeneratedTemplateFile(plan, fileTypeEntityDto, filepath.Join(contracts, entity, entity+"Dto.cs"), readDtoTemplate); err != nil {
+	if err := addGeneratedTemplateFile(
+		plan,
+		fileTypeEntityDto,
+		filepath.Join(contracts, entity, entity+"Dto.cs"),
+		readDtoTemplate,
+	); err != nil {
 		return err
 	}
-	if err := addGeneratedTemplateFile(plan, fileTypeAppServiceInterface, filepath.Join(contracts, "Services", "I"+entity+"AppService.cs"), appServiceInterfaceTemplate); err != nil {
+	if err := addGeneratedTemplateFile(
+		plan,
+		fileTypeGetListInput,
+		filepath.Join(contracts, entity, "Get"+entity+"ListInput.cs"),
+		getListInputTemplate,
+	); err != nil {
+		return err
+	}
+	if err := addGeneratedTemplateFile(
+		plan,
+		fileTypeAppServiceInterface,
+		filepath.Join(contracts, "Services", "I"+entity+"AppService.cs"),
+		appServiceInterfaceTemplate,
+	); err != nil {
 		return err
 	}
 
@@ -1095,20 +1358,40 @@ func addCRUDChanges(plan *Plan) error {
 		return err
 	}
 
-	if err := addGeneratedTemplateFile(plan, fileTypeAppService, filepath.Join(application, "Services", entity+"AppService.cs"), appServiceTemplate); err != nil {
+	if err := addGeneratedTemplateFile(
+		plan,
+		fileTypeAppService,
+		filepath.Join(application, "Services", entity+"AppService.cs"),
+		appServiceTemplate,
+	); err != nil {
 		return err
 	}
 	if info.MappingStyle == mappingMapperly {
-		if err := addGeneratedTemplateFile(plan, fileTypeMapping, filepath.Join(application, "Mapperly", entity+"Mappers.cs"), mapperlyMappersTemplate); err != nil {
+		if err := addGeneratedTemplateFile(
+			plan,
+			fileTypeMapping,
+			filepath.Join(application, "Mapperly", entity+"Mappers.cs"),
+			mapperlyMappersTemplate,
+		); err != nil {
 			return err
 		}
 	} else {
-		if err := addGeneratedTemplateFile(plan, fileTypeMapping, filepath.Join(application, "AutoMapper", entity+"Profile.cs"), autoMapperProfileTemplate); err != nil {
+		if err := addGeneratedTemplateFile(
+			plan,
+			fileTypeMapping,
+			filepath.Join(application, "AutoMapper", entity+"Profile.cs"),
+			autoMapperProfileTemplate,
+		); err != nil {
 			return err
 		}
 	}
 
-	if err := addGeneratedTemplateFile(plan, fileTypeController, filepath.Join(httpAPI, "Controllers", entity+"Controller.cs"), controllerTemplate); err != nil {
+	if err := addGeneratedTemplateFile(
+		plan,
+		fileTypeController,
+		filepath.Join(httpAPI, "Controllers", entity+"Controller.cs"),
+		controllerTemplate,
+	); err != nil {
 		return err
 	}
 
@@ -1116,7 +1399,37 @@ func addCRUDChanges(plan *Plan) error {
 	if err := addGeneratedTemplateFile(plan, fileTypeEFConfiguration, configurationPath, efConfigurationTemplate); err != nil {
 		return err
 	}
-	if err := addGeneratedTemplateFile(plan, fileTypeEFRepository, filepath.Join(efCore, "EntityFrameworkCore", "Repositories", "EfCore"+entity+"Repository.cs"), efRepositoryTemplate); err != nil {
+	if hasManyToManyRelation(opts) {
+		relation := firstManyToManyRelation(opts)
+		if err := addGeneratedTemplateFile(
+			plan,
+			fileTypeManyToManyJoinEntity,
+			filepath.Join(domain, "Entities", relation.JoinEntity+".cs"),
+			manyToManyJoinEntityTemplate,
+		); err != nil {
+			return err
+		}
+		joinConfigurationPath := filepath.Join(
+			efCore,
+			"EntityFrameworkCore",
+			"Configurations",
+			relation.JoinEntity+"Configuration.cs",
+		)
+		if err := addGeneratedTemplateFile(
+			plan,
+			fileTypeManyToManyJoinConfiguration,
+			joinConfigurationPath,
+			manyToManyJoinConfigurationTemplate,
+		); err != nil {
+			return err
+		}
+	}
+	if err := addGeneratedTemplateFile(
+		plan,
+		fileTypeEFRepository,
+		filepath.Join(efCore, "EntityFrameworkCore", "Repositories", "EfCore"+entity+"Repository.cs"),
+		efRepositoryTemplate,
+	); err != nil {
 		return err
 	}
 
@@ -1269,15 +1582,15 @@ func requireSelectedLayerDirs(info AppInfo, opts Options) error {
 		switch fileType {
 		case fileTypeConstants, fileTypeEventTypes, fileTypeEto, fileTypeLocalizationEN, fileTypeLocalizationAR:
 			add(layerDomainShared)
-		case fileTypeEntity, fileTypeRepositoryInterface, fileTypeDataSeeder:
+		case fileTypeEntity, fileTypeRepositoryInterface, fileTypeDataSeeder, fileTypeManyToManyJoinEntity:
 			add(layerDomain)
-		case fileTypeCreateDto, fileTypeUpdateDto, fileTypeEntityDto, fileTypeAppServiceInterface, fileTypePermissions, fileTypePermissionDefinitionProvider:
+		case fileTypeCreateDto, fileTypeUpdateDto, fileTypeEntityDto, fileTypeGetListInput, fileTypeAppServiceInterface, fileTypePermissions, fileTypePermissionDefinitionProvider:
 			add(layerApplicationContracts)
 		case fileTypeAppService, fileTypeMapping:
 			add(layerApplication)
 		case fileTypeController:
 			add(layerHttpAPI)
-		case fileTypeEFConfiguration, fileTypeEFRepository, fileTypeDbContext, fileTypeIDbContext:
+		case fileTypeEFConfiguration, fileTypeManyToManyJoinConfiguration, fileTypeEFRepository, fileTypeDbContext, fileTypeIDbContext:
 			add(layerEntityFrameworkCore)
 		}
 	}
@@ -1295,6 +1608,12 @@ func requireSelectedLayerDirs(info AppInfo, opts Options) error {
 		return fmt.Errorf("selected ABP layer projects were not found. Adjust --root/--module or choose fewer --file values. Missing:\n  %s", strings.Join(missing, "\n  "))
 	}
 	return nil
+}
+
+// hasManyToManyRelation gates join-file generation so ordinary CRUD output does
+// not grow extra files unless the config explicitly asks for a join relation.
+func hasManyToManyRelation(opts Options) bool {
+	return firstManyToManyRelation(opts).Kind == relationManyToMany
 }
 
 func detectModules(root string) (map[string]map[string]string, string) {
@@ -1896,6 +2215,17 @@ func updateDbContext(existing string, info AppInfo, opts Options, applyConfigura
 		if ok {
 			next = inserted
 			changed = true
+		}
+	}
+	if applyConfiguration && hasManyToManyRelation(opts) {
+		relation := firstManyToManyRelation(opts)
+		joinConfigLine := fmt.Sprintf("%sbuilder.ApplyConfiguration(new %sConfiguration());\n", memberIndent+"    ", relation.JoinEntity)
+		if !strings.Contains(next, "new "+relation.JoinEntity+"Configuration()") {
+			inserted, ok := insertOnModelCreatingLine(next, joinConfigLine)
+			if ok {
+				next = inserted
+				changed = true
+			}
 		}
 	}
 

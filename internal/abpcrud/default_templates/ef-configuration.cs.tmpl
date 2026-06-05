@@ -12,6 +12,6 @@ namespace {{.Module}}.EntityFrameworkCore.Configurations
         {
             builder.ToTable({{.DbPropertiesName}}.DbTablePrefix + "{{.PluralEntity}}", {{.DbPropertiesName}}.DbSchema);
             builder.ConfigureByConvention();
-{{.EFPropertyConfig}}        }
+{{.EFPropertyConfig}}{{.EFRelationshipConfig}}        }
     }
 }
